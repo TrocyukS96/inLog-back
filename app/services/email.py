@@ -7,8 +7,26 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
+TEST_EMAIL_DOMAINS = frozenset({"example.com", "example.org", "test.com", "localhost"})
+
+
+def _is_test_recipient(email: str) -> bool:
+    if "@" not in email:
+        return False
+    domain = email.rsplit("@", 1)[-1].lower()
+    return domain in TEST_EMAIL_DOMAINS
+
 
 async def send_email(to_email: str, subject: str, body: str) -> None:
+    if _is_test_recipient(to_email):
+        logger.info(
+            "Skipped SMTP for test recipient %s.\nSubject: %s\n\n%s",
+            to_email,
+            subject,
+            body,
+        )
+        return
+
     if not settings.smtp_host:
         logger.info(
             "SMTP is not configured. Email to %s:\nSubject: %s\n\n%s",
