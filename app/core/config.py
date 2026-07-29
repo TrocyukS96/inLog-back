@@ -3,6 +3,12 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from urllib.parse import urlparse
 
 
+def parse_cors_origins(value: str | list[str]) -> list[str]:
+    if isinstance(value, list):
+        return value
+    return [origin.strip() for origin in value.split(",") if origin.strip()]
+
+
 def normalize_database_url(url: str) -> str:
     """Convert standard postgres URL to async SQLAlchemy format."""
     if url.startswith("postgres://"):
@@ -28,6 +34,32 @@ class Settings(BaseSettings):
     port: int = 8000
 
     database_url: str = "postgresql+asyncpg://user:password@localhost:5432/inlog"
+
+    secret_key: str = "change-me-in-production-use-long-random-string"
+    jwt_algorithm: str = "HS256"
+    access_token_expire_minutes: int = 60
+    refresh_token_expire_days: int = 7
+    email_verification_expire_hours: int = 24
+
+    frontend_url: str = "http://localhost:5173"
+    email_from: str = "noreply@inlog.local"
+
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_password: str = ""
+    smtp_use_tls: bool = True
+
+    cors_origins: list[str] = [
+        "http://localhost:5173",
+        "http://localhost:3000",
+        "http://127.0.0.1:5173",
+    ]
+
+    @field_validator("cors_origins", mode="before")
+    @classmethod
+    def validate_cors_origins(cls, value: str | list[str]) -> list[str]:
+        return parse_cors_origins(value)
 
     @field_validator("database_url", mode="before")
     @classmethod
