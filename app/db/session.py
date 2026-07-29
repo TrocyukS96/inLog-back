@@ -7,6 +7,7 @@ from app.core.config import settings
 engine = create_async_engine(
     settings.database_url,
     echo=settings.debug,
+    connect_args=settings.db_connect_args,
 )
 
 async_session = async_sessionmaker(
