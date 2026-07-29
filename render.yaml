@@ -14,3 +14,9 @@ services:
         value: "false"
       - key: DATABASE_URL
         sync: false
+      - key: SECRET_KEY
+        sync: false
+      - key: CORS_ORIGINS
+        value: https://in-log-livid.vercel.app
+      - key: FRONTEND_URL
+        value: https://in-log-livid.vercel.app

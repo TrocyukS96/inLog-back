@@ -1,6 +1,5 @@
-from pydantic import Field, field_validator
-from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
-from typing import Annotated
+from pydantic import field_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from urllib.parse import urlparse
 
 
@@ -53,13 +52,14 @@ class Settings(BaseSettings):
     smtp_password: str = ""
     smtp_use_tls: bool = True
 
-    cors_origins: Annotated[list[str], NoDecode] = Field(
-        default_factory=lambda: [
-            "http://localhost:5173",
-            "http://localhost:3000",
-            "http://127.0.0.1:5173",
-        ]
+    # Comma-separated origins, e.g. https://app.example.com,http://localhost:5173
+    cors_origins: str = (
+        "http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173"
     )
+
+    @property
+    def cors_origins_list(self) -> list[str]:
+        return parse_cors_origins(self.cors_origins)
 
     @field_validator("smtp_password", mode="before")
     @classmethod
@@ -67,11 +67,6 @@ class Settings(BaseSettings):
         if isinstance(value, str):
             return value.replace(" ", "")
         return value
-
-    @field_validator("cors_origins", mode="before")
-    @classmethod
-    def validate_cors_origins(cls, value: str | list[str]) -> list[str]:
-        return parse_cors_origins(value)
 
     @field_validator("database_url", mode="before")
     @classmethod
