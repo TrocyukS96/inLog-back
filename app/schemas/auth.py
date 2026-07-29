@@ -69,3 +69,33 @@ class ResendEmailRequest(BaseModel):
 class ResendEmailResponse(BaseModel):
     email: EmailStr
     detail: str | None = None
+
+
+class PasswordResetRequest(BaseModel):
+    email: EmailStr
+
+
+class PasswordResetResponse(BaseModel):
+    email: EmailStr
+    detail: str | None = None
+
+
+class PasswordResetConfirmRequest(BaseModel):
+    new_password1: str = Field(min_length=8)
+    new_password2: str = Field(min_length=8)
+    uid: str
+    token: str
+
+
+class PasswordResetConfirmResponse(BaseModel):
+    detail: str | None = None
+
+
+class ConfirmEmailChangeRequest(BaseModel):
+    email: EmailStr
+    uid: str
+    token: str
+
+
+class ConfirmEmailChangeResponse(BaseModel):
+    detail: str | None = None

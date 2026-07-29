@@ -1,5 +1,6 @@
-from pydantic import field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import Field, field_validator
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
+from typing import Annotated
 from urllib.parse import urlparse
 
 
@@ -40,6 +41,8 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = 60
     refresh_token_expire_days: int = 7
     email_verification_expire_hours: int = 24
+    password_reset_expire_hours: int = 24
+    email_change_expire_hours: int = 24
 
     frontend_url: str = "http://localhost:5173"
     email_from: str = "noreply@inlog.local"
@@ -50,11 +53,20 @@ class Settings(BaseSettings):
     smtp_password: str = ""
     smtp_use_tls: bool = True
 
-    cors_origins: list[str] = [
-        "http://localhost:5173",
-        "http://localhost:3000",
-        "http://127.0.0.1:5173",
-    ]
+    cors_origins: Annotated[list[str], NoDecode] = Field(
+        default_factory=lambda: [
+            "http://localhost:5173",
+            "http://localhost:3000",
+            "http://127.0.0.1:5173",
+        ]
+    )
+
+    @field_validator("smtp_password", mode="before")
+    @classmethod
+    def normalize_smtp_password(cls, value: str) -> str:
+        if isinstance(value, str):
+            return value.replace(" ", "")
+        return value
 
     @field_validator("cors_origins", mode="before")
     @classmethod

@@ -53,6 +53,16 @@ class User(Base):
         back_populates="user",
         cascade="all, delete-orphan",
     )
+    password_reset_tokens: Mapped[list["PasswordResetToken"]] = relationship(
+        "PasswordResetToken",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
+    pending_email_changes: Mapped[list["PendingEmailChange"]] = relationship(
+        "PendingEmailChange",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

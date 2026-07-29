@@ -8,6 +8,10 @@ from app.db.session import get_db
 from app.schemas.auth import (
     LoginRequest,
     LoginResponse,
+    PasswordResetConfirmRequest,
+    PasswordResetConfirmResponse,
+    PasswordResetRequest,
+    PasswordResetResponse,
     RegistrationRequest,
     RegistrationResponse,
     ResendEmailRequest,
@@ -19,6 +23,7 @@ from app.schemas.auth import (
 )
 from app.services.auth import authenticate_user, create_tokens_for_user, get_user_by_email, register_user
 from app.services.email_verification import resend_verification_email, send_user_verification_email, verify_user_email
+from app.services.password_reset import confirm_password_reset, request_password_reset
 from app.services.user import serialize_user
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -135,3 +140,40 @@ async def resend_email(
 ) -> ResendEmailResponse:
     detail = await resend_verification_email(db, data.email)
     return ResendEmailResponse(email=data.email, detail=detail)
+
+
+@router.post("/password/reset/", response_model=PasswordResetResponse)
+async def password_reset(
+    data: PasswordResetRequest,
+    db: AsyncSession = Depends(get_db),
+) -> PasswordResetResponse:
+    detail = await request_password_reset(db, data.email)
+    return PasswordResetResponse(email=data.email, detail=detail)
+
+
+@router.post("/password/reset/confirm/", response_model=PasswordResetConfirmResponse)
+async def password_reset_confirm(
+    data: PasswordResetConfirmRequest,
+    db: AsyncSession = Depends(get_db),
+) -> PasswordResetConfirmResponse | JSONResponse:
+    if data.new_password1 != data.new_password2:
+        return JSONResponse(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            content={"new_password2": ["Passwords do not match."]},
+        )
+
+    try:
+        await confirm_password_reset(
+            db,
+            uid=data.uid,
+            token=data.token,
+            new_password1=data.new_password1,
+            new_password2=data.new_password2,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+    return PasswordResetConfirmResponse(detail="Password has been reset successfully.")

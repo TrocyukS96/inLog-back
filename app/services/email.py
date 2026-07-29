@@ -43,3 +43,25 @@ async def send_verification_email(to_email: str, verification_url: str) -> None:
         "If you did not create an account, you can ignore this email."
     )
     await send_email(to_email, subject, body)
+
+
+async def send_password_reset_email(to_email: str, reset_url: str) -> None:
+    subject = "Reset your InLog password"
+    body = (
+        "You requested a password reset for your InLog account.\n\n"
+        "Open the link below to set a new password:\n"
+        f"{reset_url}\n\n"
+        "If you did not request this, you can ignore this email."
+    )
+    await send_email(to_email, subject, body)
+
+
+async def send_email_change_confirmation(to_email: str, confirmation_url: str) -> None:
+    subject = "Confirm your new InLog email address"
+    body = (
+        "You requested to change the email address for your InLog account.\n\n"
+        "Confirm the new email by opening the link below:\n"
+        f"{confirmation_url}\n\n"
+        "If you did not request this, you can ignore this email."
+    )
+    await send_email(to_email, subject, body)

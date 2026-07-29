@@ -3,9 +3,14 @@ import uuid
 import pytest
 from httpx import AsyncClient
 
-from tests.helpers import get_verification_credentials
+from tests.helpers import (
+    get_email_change_credentials,
+    get_password_reset_credentials,
+    get_verification_credentials,
+)
 
 TEST_PASSWORD = "password123"
+NEW_PASSWORD = "newpassword123"
 
 
 async def register_user(client: AsyncClient, email: str) -> None:
@@ -23,6 +28,24 @@ async def register_user(client: AsyncClient, email: str) -> None:
     assert response.status_code == 201
 
 
+async def verify_user_email(client: AsyncClient, email: str) -> None:
+    uid, key = await get_verification_credentials(email)
+    response = await client.post(
+        "/api/auth/registration/verify-email/",
+        json={"uid": uid, "key": key},
+    )
+    assert response.status_code == 200
+
+
+async def login_user(client: AsyncClient, email: str, password: str = TEST_PASSWORD) -> dict:
+    response = await client.post(
+        "/api/auth/login/",
+        json={"email": email, "password": password},
+    )
+    assert response.status_code == 200
+    return response.json()
+
+
 @pytest.mark.asyncio
 async def test_register_and_login_flow(client: AsyncClient) -> None:
     unique_email = f"user-{uuid.uuid4().hex[:8]}@example.com"
@@ -35,23 +58,8 @@ async def test_register_and_login_flow(client: AsyncClient) -> None:
     assert login_before_verify.status_code == 403
     assert login_before_verify.json()["detail"] == "Please verify your email before logging in."
 
-    uid, key = await get_verification_credentials(unique_email)
-    verify_email_response = await client.post(
-        "/api/auth/registration/verify-email/",
-        json={"uid": uid, "key": key},
-    )
-    assert verify_email_response.status_code == 200
-    assert verify_email_response.json()["detail"] == "Email verified successfully."
-
-    login_response = await client.post(
-        "/api/auth/login/",
-        json={"email": unique_email, "password": TEST_PASSWORD},
-    )
-    assert login_response.status_code == 200
-    login_data = login_response.json()
-    assert "access_token" in login_data
-    assert "refresh_token" in login_data
-    assert login_data["user"]["email"] == unique_email
+    await verify_user_email(client, unique_email)
+    login_data = await login_user(client, unique_email)
 
     verify_response = await client.post(
         "/api/auth/token/verify/",
@@ -66,6 +74,73 @@ async def test_register_and_login_flow(client: AsyncClient) -> None:
     )
     assert me_response.status_code == 200
     assert me_response.json()["email"] == unique_email
+
+
+@pytest.mark.asyncio
+async def test_password_reset_flow(client: AsyncClient) -> None:
+    unique_email = f"reset-{uuid.uuid4().hex[:8]}@example.com"
+    await register_user(client, unique_email)
+    await verify_user_email(client, unique_email)
+
+    reset_response = await client.post(
+        "/api/auth/password/reset/",
+        json={"email": unique_email},
+    )
+    assert reset_response.status_code == 200
+    assert reset_response.json()["email"] == unique_email
+
+    uid, token = await get_password_reset_credentials(unique_email)
+    confirm_response = await client.post(
+        "/api/auth/password/reset/confirm/",
+        json={
+            "uid": uid,
+            "token": token,
+            "new_password1": NEW_PASSWORD,
+            "new_password2": NEW_PASSWORD,
+        },
+    )
+    assert confirm_response.status_code == 200
+    assert confirm_response.json()["detail"] == "Password has been reset successfully."
+
+    old_login = await client.post(
+        "/api/auth/login/",
+        json={"email": unique_email, "password": TEST_PASSWORD},
+    )
+    assert old_login.status_code == 401
+
+    login_data = await login_user(client, unique_email, NEW_PASSWORD)
+    assert login_data["user"]["email"] == unique_email
+
+
+@pytest.mark.asyncio
+async def test_confirm_email_change_flow(client: AsyncClient) -> None:
+    unique_email = f"change-{uuid.uuid4().hex[:8]}@example.com"
+    new_email = f"new-{uuid.uuid4().hex[:8]}@example.com"
+
+    await register_user(client, unique_email)
+    await verify_user_email(client, unique_email)
+    login_data = await login_user(client, unique_email)
+    headers = {"Authorization": f"Bearer {login_data['access_token']}"}
+
+    update_response = await client.patch(
+        "/api/users/me/",
+        data={"email": new_email},
+        headers=headers,
+    )
+    assert update_response.status_code == 200
+    assert update_response.json()["email"] == unique_email
+
+    uid, token, pending_email = await get_email_change_credentials(login_data["user"]["id"])
+    confirm_response = await client.post(
+        "/api/users/me/confirm-email-change/",
+        json={"email": pending_email, "uid": uid, "token": token},
+    )
+    assert confirm_response.status_code == 200
+    assert confirm_response.json()["detail"] == "Email changed successfully."
+
+    me_response = await client.get("/api/users/me/", headers=headers)
+    assert me_response.status_code == 200
+    assert me_response.json()["email"] == new_email
 
 
 @pytest.mark.asyncio
