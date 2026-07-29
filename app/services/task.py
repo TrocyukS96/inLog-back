@@ -367,6 +367,7 @@ async def list_tasks(
     offset: int = 0,
     is_template: bool | None = None,
     status_id: int | None = None,
+    parent_isnull: bool | None = None,
     ordering: str | None = None,
     name_icontains: str | None = None,
     slug_icontains: str | None = None,
@@ -374,11 +375,15 @@ async def list_tasks(
 ) -> PaginatedTasksResponse:
     await ensure_default_statuses(db, project_id)
 
-    filters = [Task.project_id == project_id, Task.parent_id.is_(None)]
+    filters = [Task.project_id == project_id]
     if is_template is not None:
         filters.append(Task.is_template.is_(is_template))
     if status_id is not None:
         filters.append(Task.status_id == status_id)
+    if parent_isnull is True:
+        filters.append(Task.parent_id.is_(None))
+    elif parent_isnull is False:
+        filters.append(Task.parent_id.is_not(None))
     if name_icontains:
         filters.append(Task.name.ilike(f"%{name_icontains}%"))
     if slug_icontains:
@@ -390,7 +395,11 @@ async def list_tasks(
     query = (
         select(Task)
         .where(*filters)
-        .options(*_task_load_options())
+        .options(
+            selectinload(Task.creator),
+            selectinload(Task.status),
+            selectinload(Task.tags),
+        )
     )
 
     order_column = Task.status_position.asc()
@@ -409,6 +418,8 @@ async def list_tasks(
         query_parts.append(f"is_template={'true' if is_template else 'false'}")
     if status_id is not None:
         query_parts.append(f"status={status_id}")
+    if parent_isnull is not None:
+        query_parts.append(f"parent__isnull={'true' if parent_isnull else 'false'}")
     if name_icontains:
         query_parts.append(f"name__icontains={name_icontains}")
     if slug_icontains:
@@ -428,5 +439,5 @@ async def list_tasks(
         count=total,
         next=next_url,
         previous=previous_url,
-        results=[serialize_task(task) for task in tasks],
+        results=[serialize_task(task, include_subtasks=False) for task in tasks],
     )

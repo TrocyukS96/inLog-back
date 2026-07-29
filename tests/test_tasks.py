@@ -243,3 +243,49 @@ async def test_create_subtask(client: AsyncClient) -> None:
     assert len(detail_response.json()["subtasks"]) == 1
     assert detail_response.json()["subtasks"][0]["name"] == "Sub task"
 
+
+@pytest.mark.asyncio
+async def test_subtasks_appear_in_task_list(client: AsyncClient) -> None:
+    headers, project_id, email = await setup_project(client)
+
+    parent_response = await client.post(
+        f"/api/projects/{project_id}/tasks/task/",
+        json={"name": "Parent task", "is_template": False},
+        headers=headers,
+    )
+    parent = parent_response.json()
+
+    await client.post(
+        f"/api/projects/{project_id}/tasks/task/",
+        json={"name": "Sub task", "parent": parent["id"], "is_template": False},
+        headers=headers,
+    )
+
+    list_response = await client.get(
+        f"/api/projects/{project_id}/tasks/task/",
+        params={"limit": 100, "is_template": False},
+        headers=headers,
+    )
+    assert list_response.status_code == 200
+    payload = list_response.json()
+    assert payload["count"] == 2
+    names = {task["name"] for task in payload["results"]}
+    assert names == {"Parent task", "Sub task"}
+
+    parent_only_response = await client.get(
+        f"/api/projects/{project_id}/tasks/task/",
+        params={"limit": 100, "is_template": False, "parent__isnull": True},
+        headers=headers,
+    )
+    assert parent_only_response.json()["count"] == 1
+    assert parent_only_response.json()["results"][0]["name"] == "Parent task"
+
+    child_only_response = await client.get(
+        f"/api/projects/{project_id}/tasks/task/",
+        params={"limit": 100, "is_template": False, "parent__isnull": False},
+        headers=headers,
+    )
+    assert child_only_response.json()["count"] == 1
+    assert child_only_response.json()["results"][0]["name"] == "Sub task"
+    assert child_only_response.json()["results"][0]["parent"] == parent["id"]
+
