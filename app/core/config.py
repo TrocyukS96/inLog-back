@@ -1,9 +1,10 @@
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from urllib.parse import urlparse
 
 
 def normalize_database_url(url: str) -> str:
-    """Convert Render/Heroku postgres URL to async SQLAlchemy format."""
+    """Convert standard postgres URL to async SQLAlchemy format."""
     if url.startswith("postgres://"):
         return url.replace("postgres://", "postgresql+asyncpg://", 1)
     if url.startswith("postgresql://"):
@@ -35,9 +36,19 @@ class Settings(BaseSettings):
 
     @property
     def db_connect_args(self) -> dict:
-        if "render.com" in self.database_url:
-            return {"ssl": "require"}
-        return {}
+        parsed = urlparse(self.database_url)
+        host = parsed.hostname or ""
+
+        connect_args: dict = {}
+
+        if "supabase.co" in host or "supabase.com" in host or "render.com" in host:
+            connect_args["ssl"] = "require"
+
+        # Supabase transaction pooler (port 6543) requires disabling prepared statements
+        if parsed.port == 6543:
+            connect_args["statement_cache_size"] = 0
+
+        return connect_args
 
 
 settings = Settings()
