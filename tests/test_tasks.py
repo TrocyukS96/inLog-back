@@ -147,3 +147,99 @@ async def test_tasks_filter_by_status(client: AsyncClient) -> None:
 async def test_tasks_require_auth(client: AsyncClient) -> None:
     response = await client.get("/api/projects/1/tasks/status/")
     assert response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_task_crud_via_api(client: AsyncClient) -> None:
+    headers, project_id, email = await setup_project(client)
+
+    create_response = await client.post(
+        f"/api/projects/{project_id}/tasks/task/",
+        json={"name": "New task", "priority": "important", "is_template": False},
+        headers=headers,
+    )
+    assert create_response.status_code == 201
+    created = create_response.json()
+    assert created["name"] == "New task"
+    assert created["priority"] == "important"
+    assert created["slug"]
+    assert created["status"]["name_en"] == "No status"
+    task_slug = created["slug"]
+
+    detail_response = await client.get(
+        f"/api/projects/{project_id}/tasks/task/{task_slug}/",
+        headers=headers,
+    )
+    assert detail_response.status_code == 200
+    assert detail_response.json()["id"] == created["id"]
+
+    statuses_response = await client.get(
+        f"/api/projects/{project_id}/tasks/status/",
+        headers=headers,
+    )
+    closed_status_id = next(
+        status["id"]
+        for status in statuses_response.json()
+        if status["name_en"] == "Closed"
+    )
+
+    patch_response = await client.patch(
+        f"/api/projects/{project_id}/tasks/task/{task_slug}/",
+        json={
+            "id": created["id"],
+            "name": "Updated task",
+            "description": "Task description",
+            "status": closed_status_id,
+            "status_position": 2,
+        },
+        headers=headers,
+    )
+    assert patch_response.status_code == 200
+    patched = patch_response.json()
+    assert patched["name"] == "Updated task"
+    assert patched["description"] == "Task description"
+    assert patched["status"]["name_en"] == "Closed"
+    assert patched["status_position"] == 2
+
+    delete_response = await client.delete(
+        f"/api/projects/{project_id}/tasks/task/{task_slug}/",
+        headers=headers,
+    )
+    assert delete_response.status_code == 204
+
+    list_response = await client.get(
+        f"/api/projects/{project_id}/tasks/task/",
+        params={"limit": 100, "is_template": False},
+        headers=headers,
+    )
+    assert list_response.json()["count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_create_subtask(client: AsyncClient) -> None:
+    headers, project_id, email = await setup_project(client)
+
+    parent_response = await client.post(
+        f"/api/projects/{project_id}/tasks/task/",
+        json={"name": "Parent task", "is_template": False},
+        headers=headers,
+    )
+    parent = parent_response.json()
+
+    subtask_response = await client.post(
+        f"/api/projects/{project_id}/tasks/task/",
+        json={"name": "Sub task", "parent": parent["id"], "is_template": False},
+        headers=headers,
+    )
+    assert subtask_response.status_code == 201
+    subtask = subtask_response.json()
+    assert subtask["parent"] == parent["id"]
+
+    detail_response = await client.get(
+        f"/api/projects/{project_id}/tasks/task/{parent['slug']}/",
+        headers=headers,
+    )
+    assert detail_response.status_code == 200
+    assert len(detail_response.json()["subtasks"]) == 1
+    assert detail_response.json()["subtasks"][0]["name"] == "Sub task"
+

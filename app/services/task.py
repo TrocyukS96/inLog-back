@@ -11,10 +11,12 @@ from app.models.user import User
 from app.schemas.task import (
     PaginatedTagsResponse,
     PaginatedTasksResponse,
+    TaskCreate,
     TaskEquipmentRead,
     TaskRead,
     TaskStatusRead,
     TaskTagRead,
+    TaskUpdate,
 )
 from app.services.user import serialize_user
 
@@ -37,6 +39,172 @@ def _format_datetime(value: datetime | None) -> str:
     if value is None:
         return ""
     return value.isoformat()
+
+
+def _parse_datetime(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    normalized = value.replace("Z", "+00:00")
+    return datetime.fromisoformat(normalized)
+
+
+def _task_load_options():
+    return (
+        selectinload(Task.creator),
+        selectinload(Task.status),
+        selectinload(Task.tags),
+        selectinload(Task.subtasks).selectinload(Task.creator),
+        selectinload(Task.subtasks).selectinload(Task.status),
+        selectinload(Task.subtasks).selectinload(Task.tags),
+    )
+
+
+async def _get_task_status_for_project(
+    db: AsyncSession,
+    project_id: int,
+    status_id: int | None,
+) -> TaskStatus:
+    if status_id is None:
+        return await get_default_status(db, project_id)
+
+    result = await db.execute(
+        select(TaskStatus).where(
+            TaskStatus.id == status_id,
+            TaskStatus.project_id == project_id,
+        )
+    )
+    status = result.scalar_one_or_none()
+    if status is None:
+        raise ValueError("status_not_found")
+    return status
+
+
+async def _next_status_position(
+    db: AsyncSession,
+    project_id: int,
+    status_id: int,
+    parent_id: int | None,
+) -> int:
+    result = await db.execute(
+        select(func.coalesce(func.max(Task.status_position), 0)).where(
+            Task.project_id == project_id,
+            Task.status_id == status_id,
+            Task.parent_id.is_(parent_id) if parent_id is None else Task.parent_id == parent_id,
+        )
+    )
+    return int(result.scalar_one()) + 1
+
+
+async def get_task_by_slug(db: AsyncSession, project_id: int, slug: str) -> Task | None:
+    result = await db.execute(
+        select(Task)
+        .where(Task.project_id == project_id, Task.slug == slug)
+        .options(*_task_load_options())
+        .execution_options(populate_existing=True)
+    )
+    return result.scalar_one_or_none()
+
+
+async def create_task(
+    db: AsyncSession,
+    project_id: int,
+    creator: User,
+    data: TaskCreate,
+) -> Task:
+    status = await _get_task_status_for_project(db, project_id, data.status)
+
+    parent_id = data.parent
+    if parent_id is not None:
+        parent_result = await db.execute(
+            select(Task.id).where(
+                Task.id == parent_id,
+                Task.project_id == project_id,
+            )
+        )
+        if parent_result.scalar_one_or_none() is None:
+            raise ValueError("parent_not_found")
+
+    status_position = await _next_status_position(db, project_id, status.id, parent_id)
+
+    task = Task(
+        project_id=project_id,
+        creator_id=creator.id,
+        status_id=status.id,
+        parent_id=parent_id,
+        name=data.name.strip(),
+        slug=generate_task_slug(data.name),
+        description=data.description or "",
+        priority=data.priority or "medium",
+        status_position=status_position,
+        due_date_start=_parse_datetime(data.due_date_start),
+        due_date_end=_parse_datetime(data.due_date_end),
+        is_template=data.is_template,
+    )
+    db.add(task)
+    await db.flush()
+
+    loaded = await get_task_by_slug(db, project_id, task.slug)
+    assert loaded is not None
+    return loaded
+
+
+async def update_task(
+    db: AsyncSession,
+    task: Task,
+    data: TaskUpdate,
+) -> Task:
+    updates = data.model_dump(exclude_unset=True, exclude={"id", "tags"})
+
+    if "status" in updates:
+        status = await _get_task_status_for_project(db, task.project_id, updates.pop("status"))
+        task.status_id = status.id
+
+    if "parent" in updates:
+        parent_id = updates.pop("parent")
+        if parent_id is not None:
+            parent_result = await db.execute(
+                select(Task.id).where(
+                    Task.id == parent_id,
+                    Task.project_id == task.project_id,
+                )
+            )
+            if parent_result.scalar_one_or_none() is None:
+                raise ValueError("parent_not_found")
+        task.parent_id = parent_id
+
+    for date_field in ("due_date_start", "due_date_end"):
+        if date_field in updates:
+            updates[date_field] = _parse_datetime(updates[date_field])
+
+    for field, value in updates.items():
+        if hasattr(task, field):
+            setattr(task, field, value)
+
+    if data.tags is not None:
+        if data.tags:
+            tags_result = await db.execute(
+                select(TaskTag).where(
+                    TaskTag.id.in_(data.tags),
+                    TaskTag.project_id == task.project_id,
+                )
+            )
+            task.tags = list(tags_result.scalars().all())
+        else:
+            task.tags = []
+
+    await db.flush()
+
+    loaded = await get_task_by_slug(db, task.project_id, task.slug)
+    assert loaded is not None
+    return loaded
+
+
+async def delete_task(db: AsyncSession, task: Task) -> None:
+    subtasks_result = await db.execute(select(Task).where(Task.parent_id == task.id))
+    for subtask in subtasks_result.scalars().all():
+        await delete_task(db, subtask)
+    await db.delete(task)
+    await db.flush()
 
 
 def serialize_task_status(status: TaskStatus) -> TaskStatusRead:
@@ -222,14 +390,7 @@ async def list_tasks(
     query = (
         select(Task)
         .where(*filters)
-        .options(
-            selectinload(Task.creator),
-            selectinload(Task.status),
-            selectinload(Task.tags),
-            selectinload(Task.subtasks).selectinload(Task.creator),
-            selectinload(Task.subtasks).selectinload(Task.status),
-            selectinload(Task.subtasks).selectinload(Task.tags),
-        )
+        .options(*_task_load_options())
     )
 
     order_column = Task.status_position.asc()

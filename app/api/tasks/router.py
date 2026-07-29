@@ -4,9 +4,26 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_current_user
 from app.db.session import get_db
 from app.models.user import User
-from app.schemas.task import PaginatedTagsResponse, PaginatedTasksResponse, TaskStatusRead
+from app.schemas.task import (
+    PaginatedTagsResponse,
+    PaginatedTasksResponse,
+    TaskCreate,
+    TaskRead,
+    TaskStatusRead,
+    TaskUpdate,
+)
 from app.services.project import get_project
-from app.services.task import list_task_statuses, list_task_tags, list_tasks, serialize_task_status
+from app.services.task import (
+    create_task,
+    delete_task,
+    get_task_by_slug,
+    list_task_statuses,
+    list_task_tags,
+    list_tasks,
+    serialize_task,
+    serialize_task_status,
+    update_task,
+)
 
 router = APIRouter(prefix="/projects/{project_id}/tasks", tags=["tasks"])
 
@@ -19,6 +36,13 @@ async def _require_project(
     project = await get_project(db, current_user, project_id)
     if project is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found.")
+
+
+async def _get_task_or_404(db: AsyncSession, project_id: int, task_slug: str):
+    task = await get_task_by_slug(db, project_id, task_slug)
+    if task is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found.")
+    return task
 
 
 @router.get("/status/", response_model=list[TaskStatusRead])
@@ -82,3 +106,76 @@ async def get_tasks(
         slug_icontains=slug__icontains,
         base_path=base_path,
     )
+
+
+@router.post("/task/", response_model=TaskRead, status_code=status.HTTP_201_CREATED)
+async def add_task(
+    project_id: int,
+    data: TaskCreate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> TaskRead:
+    await _require_project(project_id, current_user, db)
+    try:
+        task = await create_task(db, project_id, current_user, data)
+    except ValueError as exc:
+        error_code = str(exc)
+        if error_code == "status_not_found":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Status not found.",
+            ) from exc
+        if error_code == "parent_not_found":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Parent task not found.",
+            ) from exc
+        raise
+    return serialize_task(task)
+
+
+@router.get("/task/{task_slug}/", response_model=TaskRead)
+async def get_task(
+    project_id: int,
+    task_slug: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> TaskRead:
+    await _require_project(project_id, current_user, db)
+    task = await _get_task_or_404(db, project_id, task_slug)
+    return serialize_task(task)
+
+
+@router.patch("/task/{task_slug}/", response_model=TaskRead)
+async def patch_task(
+    project_id: int,
+    task_slug: str,
+    data: TaskUpdate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> TaskRead:
+    await _require_project(project_id, current_user, db)
+    task = await _get_task_or_404(db, project_id, task_slug)
+    try:
+        updated = await update_task(db, task, data)
+    except ValueError as exc:
+        error_code = str(exc)
+        if error_code in {"status_not_found", "parent_not_found"}:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid task reference.",
+            ) from exc
+        raise
+    return serialize_task(updated)
+
+
+@router.delete("/task/{task_slug}/", status_code=status.HTTP_204_NO_CONTENT)
+async def remove_task(
+    project_id: int,
+    task_slug: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    await _require_project(project_id, current_user, db)
+    task = await _get_task_or_404(db, project_id, task_slug)
+    await delete_task(db, task)

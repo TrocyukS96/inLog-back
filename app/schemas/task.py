@@ -83,3 +83,31 @@ class PaginatedTasksResponse(BaseModel):
     next: str | None
     previous: str | None
     results: list[TaskRead]
+
+
+class TaskCreate(BaseModel):
+    name: str = Field(min_length=1)
+    title: str = ""
+    description: str = ""
+    priority: str = "medium"
+    project: int | None = None
+    parent: int | None = None
+    status: int | None = None
+    due_date_start: str = ""
+    due_date_end: str = ""
+    is_template: bool = False
+
+
+class TaskUpdate(BaseModel):
+    id: int | None = None
+    name: str | None = None
+    description: str | None = None
+    priority: str | None = None
+    status: int | None = None
+    status_position: int | None = None
+    parent: int | None = None
+    due_date_start: str | None = None
+    due_date_end: str | None = None
+    tags: list[int] | None = None
+    archived: bool | None = None
+    is_template: bool | None = None
