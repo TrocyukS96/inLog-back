@@ -20,3 +20,7 @@ services:
         value: https://in-log-livid.vercel.app
       - key: FRONTEND_URL
         value: https://in-log-livid.vercel.app
+      - key: RESEND_API_KEY
+        sync: false
+      - key: EMAIL_FROM
+        value: InLog <onboarding@resend.dev>

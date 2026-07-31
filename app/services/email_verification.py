@@ -80,7 +80,15 @@ async def verify_user_email(
     user_id = decode_uid(uid) if uid else None
 
     verification_token = await get_verification_token(db, user_id=user_id, token=key)
+    if verification_token is None and user_id is not None:
+        verification_token = await get_verification_token(db, token=key)
+
     if verification_token is None:
+        if user_id is not None:
+            user_result = await db.execute(select(User).where(User.id == user_id))
+            user = user_result.scalar_one_or_none()
+            if user is not None and user.is_email_verified:
+                return user
         raise ValueError("Invalid verification link.")
 
     expires_at = verification_token.expires_at
@@ -92,6 +100,13 @@ async def verify_user_email(
     user = verification_token.user
     if user is None:
         raise ValueError("User not found.")
+
+    if user.is_email_verified:
+        await db.execute(
+            delete(EmailVerificationToken).where(EmailVerificationToken.user_id == user.id)
+        )
+        await db.flush()
+        return user
 
     user.is_email_verified = True
     await db.execute(

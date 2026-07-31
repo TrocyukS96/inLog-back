@@ -45,6 +45,7 @@ class Settings(BaseSettings):
 
     frontend_url: str = "http://localhost:5173"
     email_from: str = "noreply@inlog.local"
+    resend_api_key: str = ""
 
     smtp_host: str = ""
     smtp_port: int = 587

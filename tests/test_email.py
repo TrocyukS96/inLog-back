@@ -1,4 +1,5 @@
 import aiosmtplib
+import httpx
 import pytest
 
 from app.services.email import TEST_EMAIL_DOMAINS, _is_test_recipient, send_email
@@ -40,11 +41,33 @@ async def test_send_email_uses_smtp_for_real_domains(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
+async def test_send_email_uses_resend_when_api_key_set(monkeypatch) -> None:
+    called = False
+
+    async def fake_resend_post(self, url, **kwargs):
+        nonlocal called
+        called = True
+        request = httpx.Request("POST", url)
+        return httpx.Response(200, request=request)
+
+    monkeypatch.setattr("app.services.email.settings.resend_api_key", "re_test_key")
+    monkeypatch.setattr("app.services.email.settings.smtp_host", "smtp.gmail.com")
+    monkeypatch.setattr("app.services.email.settings.email_from", "InLog <onboarding@resend.dev>")
+    monkeypatch.setattr(httpx.AsyncClient, "post", fake_resend_post)
+
+    result = await send_email("user@gmail.com", "Subject", "Body")
+
+    assert called is True
+    assert result is True
+
+
+@pytest.mark.asyncio
 async def test_send_email_returns_false_on_smtp_failure(monkeypatch) -> None:
     async def failing_smtp_send(*args, **kwargs) -> None:
         raise aiosmtplib.errors.SMTPConnectTimeoutError("timeout")
 
     monkeypatch.setattr("app.services.email.aiosmtplib.send", failing_smtp_send)
+    monkeypatch.setattr("app.services.email.settings.resend_api_key", "")
     monkeypatch.setattr("app.services.email.settings.smtp_host", "smtp.gmail.com")
 
     result = await send_email("user@gmail.com", "Subject", "Body with link")
