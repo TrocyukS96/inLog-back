@@ -1,3 +1,4 @@
+import logging
 import secrets
 from datetime import UTC, datetime, timedelta
 
@@ -10,6 +11,8 @@ from app.core.uids import decode_uid, encode_uid
 from app.models.email_verification_token import EmailVerificationToken
 from app.models.user import User
 from app.services.email import send_verification_email
+
+logger = logging.getLogger(__name__)
 
 
 def build_verification_url(user_id: int, token: str) -> str:
@@ -34,10 +37,17 @@ async def create_verification_token(db: AsyncSession, user: User) -> EmailVerifi
     return verification_token
 
 
-async def send_user_verification_email(db: AsyncSession, user: User) -> None:
+async def send_user_verification_email(db: AsyncSession, user: User) -> bool:
     verification_token = await create_verification_token(db, user)
     verification_url = build_verification_url(user.id, verification_token.token)
-    await send_verification_email(user.email, verification_url)
+    sent = await send_verification_email(user.email, verification_url)
+    if not sent:
+        logger.warning(
+            "Verification token created for %s but email was not delivered. URL: %s",
+            user.email,
+            verification_url,
+        )
+    return sent
 
 
 async def get_verification_token(

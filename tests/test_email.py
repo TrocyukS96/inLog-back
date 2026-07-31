@@ -1,3 +1,4 @@
+import aiosmtplib
 import pytest
 
 from app.services.email import TEST_EMAIL_DOMAINS, _is_test_recipient, send_email
@@ -32,9 +33,23 @@ async def test_send_email_uses_smtp_for_real_domains(monkeypatch) -> None:
     monkeypatch.setattr("app.services.email.settings.smtp_host", "smtp.gmail.com")
     monkeypatch.setattr("app.services.email.settings.email_from", "noreply@test.local")
 
-    await send_email("user@gmail.com", "Subject", "Body")
+    result = await send_email("user@gmail.com", "Subject", "Body")
 
     assert called is True
+    assert result is True
+
+
+@pytest.mark.asyncio
+async def test_send_email_returns_false_on_smtp_failure(monkeypatch) -> None:
+    async def failing_smtp_send(*args, **kwargs) -> None:
+        raise aiosmtplib.errors.SMTPConnectTimeoutError("timeout")
+
+    monkeypatch.setattr("app.services.email.aiosmtplib.send", failing_smtp_send)
+    monkeypatch.setattr("app.services.email.settings.smtp_host", "smtp.gmail.com")
+
+    result = await send_email("user@gmail.com", "Subject", "Body with link")
+
+    assert result is False
 
 
 def test_test_email_domains_include_example_com() -> None:

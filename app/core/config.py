@@ -51,6 +51,7 @@ class Settings(BaseSettings):
     smtp_user: str = ""
     smtp_password: str = ""
     smtp_use_tls: bool = True
+    smtp_timeout: int = 10
 
     # Comma-separated origins, e.g. https://app.example.com,http://localhost:5173
     cors_origins: str = (

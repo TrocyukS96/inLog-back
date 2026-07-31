@@ -17,7 +17,7 @@ def _is_test_recipient(email: str) -> bool:
     return domain in TEST_EMAIL_DOMAINS
 
 
-async def send_email(to_email: str, subject: str, body: str) -> None:
+async def send_email(to_email: str, subject: str, body: str) -> bool:
     if _is_test_recipient(to_email):
         logger.info(
             "Skipped SMTP for test recipient %s.\nSubject: %s\n\n%s",
@@ -25,7 +25,7 @@ async def send_email(to_email: str, subject: str, body: str) -> None:
             subject,
             body,
         )
-        return
+        return True
 
     if not settings.smtp_host:
         logger.info(
@@ -34,7 +34,7 @@ async def send_email(to_email: str, subject: str, body: str) -> None:
             subject,
             body,
         )
-        return
+        return True
 
     message = EmailMessage()
     message["From"] = settings.email_from
@@ -42,17 +42,29 @@ async def send_email(to_email: str, subject: str, body: str) -> None:
     message["Subject"] = subject
     message.set_content(body)
 
-    await aiosmtplib.send(
-        message,
-        hostname=settings.smtp_host,
-        port=settings.smtp_port,
-        username=settings.smtp_user or None,
-        password=settings.smtp_password or None,
-        start_tls=settings.smtp_use_tls,
-    )
+    try:
+        await aiosmtplib.send(
+            message,
+            hostname=settings.smtp_host,
+            port=settings.smtp_port,
+            username=settings.smtp_user or None,
+            password=settings.smtp_password or None,
+            start_tls=settings.smtp_use_tls,
+            timeout=settings.smtp_timeout,
+        )
+    except Exception:
+        logger.exception(
+            "Failed to send email to %s (subject: %s). Message body logged below.\n%s",
+            to_email,
+            subject,
+            body,
+        )
+        return False
+
+    return True
 
 
-async def send_verification_email(to_email: str, verification_url: str) -> None:
+async def send_verification_email(to_email: str, verification_url: str) -> bool:
     subject = "Confirm your InLog account"
     body = (
         "Welcome to InLog!\n\n"
@@ -60,10 +72,10 @@ async def send_verification_email(to_email: str, verification_url: str) -> None:
         f"{verification_url}\n\n"
         "If you did not create an account, you can ignore this email."
     )
-    await send_email(to_email, subject, body)
+    return await send_email(to_email, subject, body)
 
 
-async def send_password_reset_email(to_email: str, reset_url: str) -> None:
+async def send_password_reset_email(to_email: str, reset_url: str) -> bool:
     subject = "Reset your InLog password"
     body = (
         "You requested a password reset for your InLog account.\n\n"
@@ -71,10 +83,10 @@ async def send_password_reset_email(to_email: str, reset_url: str) -> None:
         f"{reset_url}\n\n"
         "If you did not request this, you can ignore this email."
     )
-    await send_email(to_email, subject, body)
+    return await send_email(to_email, subject, body)
 
 
-async def send_email_change_confirmation(to_email: str, confirmation_url: str) -> None:
+async def send_email_change_confirmation(to_email: str, confirmation_url: str) -> bool:
     subject = "Confirm your new InLog email address"
     body = (
         "You requested to change the email address for your InLog account.\n\n"
@@ -82,4 +94,4 @@ async def send_email_change_confirmation(to_email: str, confirmation_url: str) -
         f"{confirmation_url}\n\n"
         "If you did not request this, you can ignore this email."
     )
-    await send_email(to_email, subject, body)
+    return await send_email(to_email, subject, body)
