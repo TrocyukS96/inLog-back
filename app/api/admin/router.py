@@ -7,6 +7,10 @@ from app.db.session import get_db
 from app.models.user import User
 from app.schemas.admin import (
     AdminAccessRead,
+    AdminOrganizationRead,
+    AdminOrganizationUpdate,
+    AdminProjectRead,
+    AdminProjectUpdate,
     AdminUserRead,
     AdminUserRoleUpdate,
     PaginatedAdminMembersResponse,
@@ -18,12 +22,16 @@ from app.schemas.admin import (
     PaginatedAdminUsersResponse,
 )
 from app.services.admin.catalog import (
+    delete_admin_organization,
+    delete_admin_project,
     list_all_members,
     list_all_organizations,
     list_all_projects,
     list_all_task_statuses,
     list_all_task_tags,
     list_all_tasks,
+    update_admin_organization,
+    update_admin_project,
 )
 from app.services.admin.users import delete_user_by_admin, list_all_users, update_user_platform_role
 
@@ -126,6 +134,37 @@ async def admin_list_organizations(
     )
 
 
+@router.patch("/organization/{organization_id}/", response_model=AdminOrganizationRead)
+async def admin_update_organization(
+    organization_id: int,
+    data: AdminOrganizationUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_permission(Permission.MANAGE_ORGANIZATIONS)),
+) -> AdminOrganizationRead:
+    try:
+        return await update_admin_organization(db, organization_id, data)
+    except ValueError as exc:
+        message = str(exc)
+        status_code = (
+            status.HTTP_404_NOT_FOUND
+            if message.endswith("not found.")
+            else status.HTTP_400_BAD_REQUEST
+        )
+        raise HTTPException(status_code=status_code, detail=message) from exc
+
+
+@router.delete("/organization/{organization_id}/", status_code=status.HTTP_204_NO_CONTENT)
+async def admin_delete_organization(
+    organization_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_permission(Permission.DELETE_ORGANIZATIONS)),
+) -> None:
+    try:
+        await delete_admin_organization(db, organization_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
 @router.get("/project/", response_model=PaginatedAdminProjectsResponse)
 async def admin_list_projects(
     request: Request,
@@ -144,6 +183,37 @@ async def admin_list_projects(
         organization_id=organization,
         base_path=_admin_base_path(request, "project"),
     )
+
+
+@router.patch("/project/{project_id}/", response_model=AdminProjectRead)
+async def admin_update_project(
+    project_id: int,
+    data: AdminProjectUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_permission(Permission.MANAGE_PROJECTS)),
+) -> AdminProjectRead:
+    try:
+        return await update_admin_project(db, project_id, data)
+    except ValueError as exc:
+        message = str(exc)
+        status_code = (
+            status.HTTP_404_NOT_FOUND
+            if message.endswith("not found.")
+            else status.HTTP_400_BAD_REQUEST
+        )
+        raise HTTPException(status_code=status_code, detail=message) from exc
+
+
+@router.delete("/project/{project_id}/", status_code=status.HTTP_204_NO_CONTENT)
+async def admin_delete_project(
+    project_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_permission(Permission.DELETE_PROJECTS)),
+) -> None:
+    try:
+        await delete_admin_project(db, project_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
 
 @router.get("/task/", response_model=PaginatedAdminTasksResponse)

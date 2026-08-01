@@ -75,6 +75,14 @@ class PaginatedAdminOrganizationsResponse(PaginatedResponse):
     results: list[AdminOrganizationRead]
 
 
+class AdminOrganizationUpdate(BaseModel):
+    full_name: str | None = Field(default=None, min_length=1)
+    short_name: str | None = Field(default=None, min_length=1)
+    address: str | None = None
+    inn: str | None = None
+    kpp: str | None = None
+
+
 class AdminProjectRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -92,6 +100,15 @@ class AdminProjectRead(BaseModel):
 
 class PaginatedAdminProjectsResponse(PaginatedResponse):
     results: list[AdminProjectRead]
+
+
+class AdminProjectUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1)
+    organization_id: int | None = None
+    reservoir: str | None = None
+    company_customer: str | None = None
+    contractor: str | None = None
+    country: str | None = None
 
 
 class AdminTaskRead(BaseModel):

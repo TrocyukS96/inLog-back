@@ -9,7 +9,9 @@ from app.models.user import User
 from app.schemas.admin import (
     AdminMemberRead,
     AdminOrganizationRead,
+    AdminOrganizationUpdate,
     AdminProjectRead,
+    AdminProjectUpdate,
     AdminTaskRead,
     AdminTaskStatusRead,
     AdminTaskTagRead,
@@ -23,6 +25,8 @@ from app.schemas.admin import (
 )
 from app.services.admin.pagination import build_page_urls
 from app.services.admin.serializers import serialize_user_brief, user_display_name
+from app.services.organization import delete_organization
+from app.services.project import delete_project
 
 
 async def _load_project_members_map(
@@ -641,3 +645,152 @@ async def list_all_task_tags(
             for tag in tags
         ],
     )
+
+
+async def _get_organization_counts(db: AsyncSession, organization_id: int) -> tuple[int, int]:
+    members_count = int(
+        (
+            await db.execute(
+                select(func.count())
+                .select_from(OrganizationMember)
+                .where(OrganizationMember.organization_id == organization_id)
+            )
+        ).scalar_one()
+    )
+    projects_count = int(
+        (
+            await db.execute(
+                select(func.count())
+                .select_from(Project)
+                .where(Project.organization_id == organization_id)
+            )
+        ).scalar_one()
+    )
+    return members_count, projects_count
+
+
+async def _serialize_admin_organization(
+    db: AsyncSession,
+    organization: Organization,
+) -> AdminOrganizationRead:
+    members_count, projects_count = await _get_organization_counts(db, organization.id)
+    return AdminOrganizationRead(
+        id=organization.id,
+        full_name=organization.full_name,
+        short_name=organization.short_name,
+        address=organization.address,
+        inn=organization.inn,
+        kpp=organization.kpp,
+        created_at=organization.created_at,
+        members_count=members_count,
+        projects_count=projects_count,
+    )
+
+
+async def get_admin_organization(db: AsyncSession, organization_id: int) -> Organization | None:
+    result = await db.execute(select(Organization).where(Organization.id == organization_id))
+    return result.scalar_one_or_none()
+
+
+async def update_admin_organization(
+    db: AsyncSession,
+    organization_id: int,
+    data: AdminOrganizationUpdate,
+) -> AdminOrganizationRead:
+    organization = await get_admin_organization(db, organization_id)
+    if organization is None:
+        raise ValueError("Organization not found.")
+
+    updates = data.model_dump(exclude_unset=True)
+    for field, value in updates.items():
+        setattr(organization, field, value)
+
+    await db.flush()
+    await db.refresh(organization)
+    return await _serialize_admin_organization(db, organization)
+
+
+async def delete_admin_organization(db: AsyncSession, organization_id: int) -> None:
+    organization = await get_admin_organization(db, organization_id)
+    if organization is None:
+        raise ValueError("Organization not found.")
+
+    await delete_organization(db, organization)
+
+
+async def _get_project_members_count(db: AsyncSession, project_id: int) -> int:
+    return int(
+        (
+            await db.execute(
+                select(func.count())
+                .select_from(ProjectMember)
+                .where(ProjectMember.project_id == project_id)
+            )
+        ).scalar_one()
+    )
+
+
+async def _serialize_admin_project(db: AsyncSession, project: Project) -> AdminProjectRead:
+    if project.organization is None:
+        result = await db.execute(
+            select(Project)
+            .where(Project.id == project.id)
+            .options(selectinload(Project.organization))
+        )
+        project = result.scalar_one()
+
+    members_count = await _get_project_members_count(db, project.id)
+    return AdminProjectRead(
+        id=project.id,
+        name=project.name,
+        organization_id=project.organization_id,
+        organization_name=project.organization.short_name if project.organization else "",
+        reservoir=project.reservoir,
+        company_customer=project.company_customer,
+        contractor=project.contractor,
+        country=project.country,
+        created_at=project.created_at,
+        members_count=members_count,
+    )
+
+
+async def get_admin_project(db: AsyncSession, project_id: int) -> Project | None:
+    result = await db.execute(
+        select(Project)
+        .where(Project.id == project_id)
+        .options(selectinload(Project.organization))
+    )
+    return result.scalar_one_or_none()
+
+
+async def update_admin_project(
+    db: AsyncSession,
+    project_id: int,
+    data: AdminProjectUpdate,
+) -> AdminProjectRead:
+    project = await get_admin_project(db, project_id)
+    if project is None:
+        raise ValueError("Project not found.")
+
+    updates = data.model_dump(exclude_unset=True)
+    if "organization_id" in updates:
+        organization_id = updates.pop("organization_id")
+        organization = await get_admin_organization(db, organization_id)
+        if organization is None:
+            raise ValueError("Organization not found.")
+        project.organization_id = organization_id
+
+    for field, value in updates.items():
+        setattr(project, field, value)
+
+    await db.flush()
+    await db.refresh(project)
+    return await _serialize_admin_project(db, project)
+
+
+async def delete_admin_project(db: AsyncSession, project_id: int) -> None:
+    project = await get_admin_project(db, project_id)
+    if project is None:
+        raise ValueError("Project not found.")
+
+    await delete_project(db, project)

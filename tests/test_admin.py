@@ -209,3 +209,63 @@ async def test_admin_catalog_endpoints(client: AsyncClient) -> None:
         response = await client.get(path, headers=headers)
         assert response.status_code == 200
         assert "results" in response.json()
+
+
+@pytest.mark.asyncio
+async def test_admin_can_delete_project_and_organization(client: AsyncClient) -> None:
+    _, admin_login = await create_verified_user(client, PlatformRole.ADMIN)
+    headers = {"Authorization": f"Bearer {admin_login['access_token']}"}
+
+    org_response = await client.post(
+        "/api/organizations/organization/",
+        headers=headers,
+        json={"full_name": "Delete Org", "short_name": "DO"},
+    )
+    assert org_response.status_code == 201
+    org_id = org_response.json()["id"]
+
+    project_response = await client.post(
+        "/api/projects/project/",
+        headers=headers,
+        json={"name": "Delete Project", "organization": org_id},
+    )
+    assert project_response.status_code == 201
+    project_id = project_response.json()["id"]
+
+    task_response = await client.post(
+        f"/api/projects/{project_id}/tasks/task/",
+        headers=headers,
+        json={"name": "Task to cascade", "project": project_id},
+    )
+    assert task_response.status_code == 201
+
+    delete_project_response = await client.delete(
+        f"/api/admin/project/{project_id}/",
+        headers=headers,
+    )
+    assert delete_project_response.status_code == 204
+
+    projects_list = await client.get("/api/admin/project/", headers=headers)
+    assert projects_list.status_code == 200
+    project_ids = {item["id"] for item in projects_list.json()["results"]}
+    assert project_id not in project_ids
+
+    delete_org_response = await client.delete(
+        f"/api/admin/organization/{org_id}/",
+        headers=headers,
+    )
+    assert delete_org_response.status_code == 204
+
+    orgs_list = await client.get("/api/admin/organization/", headers=headers)
+    assert orgs_list.status_code == 200
+    org_ids = {item["id"] for item in orgs_list.json()["results"]}
+    assert org_id not in org_ids
+
+
+@pytest.mark.asyncio
+async def test_admin_delete_project_not_found(client: AsyncClient) -> None:
+    _, admin_login = await create_verified_user(client, PlatformRole.ADMIN)
+    headers = {"Authorization": f"Bearer {admin_login['access_token']}"}
+
+    response = await client.delete("/api/admin/project/999999/", headers=headers)
+    assert response.status_code == 404
