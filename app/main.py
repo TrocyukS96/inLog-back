@@ -7,7 +7,8 @@ from app.api.notifications.ws import ws_router
 from app.api.router import api_router
 from app.core.config import settings
 from app.db.base import Base
-from app.db.session import engine
+from app.db.session import async_session, engine
+from app.services.admin.users import ensure_super_admin_email
 from app.models import (  # noqa: F401
     EmailVerificationToken,
     Organization,
@@ -29,6 +30,12 @@ from app.models import (  # noqa: F401
 async def lifespan(app: FastAPI):
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+
+    if settings.super_admin_email:
+        async with async_session() as session:
+            await ensure_super_admin_email(session, settings.super_admin_email)
+            await session.commit()
+
     yield
 
 

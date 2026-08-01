@@ -24,3 +24,5 @@ services:
         sync: false
       - key: EMAIL_FROM
         value: InLog <onboarding@resend.dev>
+      - key: SUPER_ADMIN_EMAIL
+        sync: false

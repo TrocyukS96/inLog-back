@@ -47,6 +47,8 @@ class Settings(BaseSettings):
     email_from: str = "noreply@inlog.local"
     resend_api_key: str = ""
 
+    super_admin_email: str = ""
+
     smtp_host: str = ""
     smtp_port: int = 587
     smtp_user: str = ""
