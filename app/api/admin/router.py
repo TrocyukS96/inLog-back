@@ -24,6 +24,9 @@ from app.schemas.admin import (
 from app.services.admin.catalog import (
     delete_admin_organization,
     delete_admin_project,
+    delete_admin_task,
+    delete_admin_task_status,
+    delete_admin_task_tag,
     list_all_members,
     list_all_organizations,
     list_all_projects,
@@ -236,6 +239,24 @@ async def admin_list_tasks(
     )
 
 
+@router.delete("/task/{task_id}/", status_code=status.HTTP_204_NO_CONTENT)
+async def admin_delete_task(
+    task_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_permission(Permission.DELETE_TASKS)),
+) -> None:
+    try:
+        await delete_admin_task(db, task_id)
+    except ValueError as exc:
+        message = str(exc)
+        status_code = (
+            status.HTTP_404_NOT_FOUND
+            if message.endswith("not found.")
+            else status.HTTP_400_BAD_REQUEST
+        )
+        raise HTTPException(status_code=status_code, detail=message) from exc
+
+
 @router.get("/task-status/", response_model=PaginatedAdminTaskStatusesResponse)
 async def admin_list_task_statuses(
     request: Request,
@@ -252,6 +273,24 @@ async def admin_list_task_statuses(
         project_id=project,
         base_path=_admin_base_path(request, "task-status"),
     )
+
+
+@router.delete("/task-status/{status_id}/", status_code=status.HTTP_204_NO_CONTENT)
+async def admin_delete_task_status(
+    status_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_permission(Permission.DELETE_TASK_STATUSES)),
+) -> None:
+    try:
+        await delete_admin_task_status(db, status_id)
+    except ValueError as exc:
+        message = str(exc)
+        status_code = (
+            status.HTTP_404_NOT_FOUND
+            if message.endswith("not found.")
+            else status.HTTP_400_BAD_REQUEST
+        )
+        raise HTTPException(status_code=status_code, detail=message) from exc
 
 
 @router.get("/task-tag/", response_model=PaginatedAdminTaskTagsResponse)
@@ -272,3 +311,21 @@ async def admin_list_task_tags(
         project_id=project,
         base_path=_admin_base_path(request, "task-tag"),
     )
+
+
+@router.delete("/task-tag/{tag_id}/", status_code=status.HTTP_204_NO_CONTENT)
+async def admin_delete_task_tag(
+    tag_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_permission(Permission.DELETE_TASK_TAGS)),
+) -> None:
+    try:
+        await delete_admin_task_tag(db, tag_id)
+    except ValueError as exc:
+        message = str(exc)
+        status_code = (
+            status.HTTP_404_NOT_FOUND
+            if message.endswith("not found.")
+            else status.HTTP_400_BAD_REQUEST
+        )
+        raise HTTPException(status_code=status_code, detail=message) from exc

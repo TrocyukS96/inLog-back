@@ -263,6 +263,44 @@ async def test_admin_can_delete_project_and_organization(client: AsyncClient) ->
 
 
 @pytest.mark.asyncio
+async def test_admin_can_delete_task(client: AsyncClient) -> None:
+    _, admin_login = await create_verified_user(client, PlatformRole.ADMIN)
+    headers = {"Authorization": f"Bearer {admin_login['access_token']}"}
+
+    org_response = await client.post(
+        "/api/organizations/organization/",
+        headers=headers,
+        json={"full_name": "Task Org", "short_name": "TO"},
+    )
+    assert org_response.status_code == 201
+    org_id = org_response.json()["id"]
+
+    project_response = await client.post(
+        "/api/projects/project/",
+        headers=headers,
+        json={"name": "Task Project", "organization": org_id},
+    )
+    assert project_response.status_code == 201
+    project_id = project_response.json()["id"]
+
+    task_response = await client.post(
+        f"/api/projects/{project_id}/tasks/task/",
+        headers=headers,
+        json={"name": "Task to delete", "project": project_id},
+    )
+    assert task_response.status_code == 201
+    task_id = task_response.json()["id"]
+
+    delete_response = await client.delete(f"/api/admin/task/{task_id}/", headers=headers)
+    assert delete_response.status_code == 204
+
+    tasks_list = await client.get("/api/admin/task/", headers=headers)
+    assert tasks_list.status_code == 200
+    task_ids = {item["id"] for item in tasks_list.json()["results"]}
+    assert task_id not in task_ids
+
+
+@pytest.mark.asyncio
 async def test_admin_delete_project_not_found(client: AsyncClient) -> None:
     _, admin_login = await create_verified_user(client, PlatformRole.ADMIN)
     headers = {"Authorization": f"Bearer {admin_login['access_token']}"}

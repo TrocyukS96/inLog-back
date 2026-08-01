@@ -18,6 +18,9 @@ class Permission(StrEnum):
     DELETE_PROJECTS = "delete_projects"
     MANAGE_ORGANIZATIONS = "manage_organizations"
     MANAGE_PROJECTS = "manage_projects"
+    DELETE_TASKS = "delete_tasks"
+    DELETE_TASK_STATUSES = "delete_task_statuses"
+    DELETE_TASK_TAGS = "delete_task_tags"
 
 
 ROLE_PERMISSIONS: dict[PlatformRole, frozenset[Permission]] = {
@@ -37,6 +40,9 @@ ROLE_PERMISSIONS: dict[PlatformRole, frozenset[Permission]] = {
             Permission.DELETE_PROJECTS,
             Permission.MANAGE_ORGANIZATIONS,
             Permission.MANAGE_PROJECTS,
+            Permission.DELETE_TASKS,
+            Permission.DELETE_TASK_STATUSES,
+            Permission.DELETE_TASK_TAGS,
         }
     ),
     PlatformRole.SUPER_ADMIN: frozenset(Permission),

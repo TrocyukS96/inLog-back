@@ -27,6 +27,7 @@ from app.services.admin.pagination import build_page_urls
 from app.services.admin.serializers import serialize_user_brief, user_display_name
 from app.services.organization import delete_organization
 from app.services.project import delete_project
+from app.services.task import delete_task
 
 
 async def _load_project_members_map(
@@ -794,3 +795,54 @@ async def delete_admin_project(db: AsyncSession, project_id: int) -> None:
         raise ValueError("Project not found.")
 
     await delete_project(db, project)
+
+
+async def get_admin_task(db: AsyncSession, task_id: int) -> Task | None:
+    result = await db.execute(select(Task).where(Task.id == task_id))
+    return result.scalar_one_or_none()
+
+
+async def delete_admin_task(db: AsyncSession, task_id: int) -> None:
+    task = await get_admin_task(db, task_id)
+    if task is None:
+        raise ValueError("Task not found.")
+
+    await delete_task(db, task)
+
+
+async def get_admin_task_status(db: AsyncSession, status_id: int) -> TaskStatus | None:
+    result = await db.execute(select(TaskStatus).where(TaskStatus.id == status_id))
+    return result.scalar_one_or_none()
+
+
+async def delete_admin_task_status(db: AsyncSession, status_id: int) -> None:
+    status = await get_admin_task_status(db, status_id)
+    if status is None:
+        raise ValueError("Task status not found.")
+
+    tasks_count = int(
+        (
+            await db.execute(
+                select(func.count()).select_from(Task).where(Task.status_id == status_id)
+            )
+        ).scalar_one()
+    )
+    if tasks_count > 0:
+        raise ValueError("Cannot delete task status while tasks are assigned to it.")
+
+    await db.delete(status)
+    await db.flush()
+
+
+async def get_admin_task_tag(db: AsyncSession, tag_id: int) -> TaskTag | None:
+    result = await db.execute(select(TaskTag).where(TaskTag.id == tag_id))
+    return result.scalar_one_or_none()
+
+
+async def delete_admin_task_tag(db: AsyncSession, tag_id: int) -> None:
+    tag = await get_admin_task_tag(db, tag_id)
+    if tag is None:
+        raise ValueError("Task tag not found.")
+
+    await db.delete(tag)
+    await db.flush()
