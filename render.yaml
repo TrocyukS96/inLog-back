@@ -17,7 +17,7 @@ services:
       - key: SECRET_KEY
         sync: false
       - key: CORS_ORIGINS
-        value: https://in-log-livid.vercel.app
+        value: https://in-log-livid.vercel.app,http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000
       - key: FRONTEND_URL
         value: https://in-log-livid.vercel.app
       - key: RESEND_API_KEY

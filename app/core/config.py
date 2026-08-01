@@ -3,10 +3,22 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from urllib.parse import urlparse
 
 
+DEFAULT_DEV_CORS_ORIGINS = (
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:3000",
+)
+
+
 def parse_cors_origins(value: str | list[str]) -> list[str]:
     if isinstance(value, list):
         return value
     return [origin.strip() for origin in value.split(",") if origin.strip()]
+
+
+def merge_cors_origins(configured: list[str]) -> list[str]:
+    """Configured origins plus local dev frontends (deduplicated, order preserved)."""
+    return list(dict.fromkeys([*configured, *DEFAULT_DEV_CORS_ORIGINS]))
 
 
 def normalize_database_url(url: str) -> str:
@@ -63,7 +75,7 @@ class Settings(BaseSettings):
 
     @property
     def cors_origins_list(self) -> list[str]:
-        return parse_cors_origins(self.cors_origins)
+        return merge_cors_origins(parse_cors_origins(self.cors_origins))
 
     @field_validator("smtp_password", mode="before")
     @classmethod
