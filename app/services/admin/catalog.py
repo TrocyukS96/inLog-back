@@ -5,12 +5,16 @@ from sqlalchemy.orm import selectinload
 from app.models.organization import Organization, OrganizationMember
 from app.models.project import Project, ProjectMember
 from app.models.task import Task, TaskStatus, TaskTag
+from app.models.user import User
 from app.schemas.admin import (
+    AdminMemberRead,
     AdminOrganizationRead,
     AdminProjectRead,
     AdminTaskRead,
     AdminTaskStatusRead,
     AdminTaskTagRead,
+    AdminUserBrief,
+    PaginatedAdminMembersResponse,
     PaginatedAdminOrganizationsResponse,
     PaginatedAdminProjectsResponse,
     PaginatedAdminTaskStatusesResponse,
@@ -18,6 +22,262 @@ from app.schemas.admin import (
     PaginatedAdminTasksResponse,
 )
 from app.services.admin.pagination import build_page_urls
+from app.services.admin.serializers import serialize_user_brief, user_display_name
+
+
+async def _load_project_members_map(
+    db: AsyncSession,
+    project_ids: list[int],
+) -> dict[int, list[AdminUserBrief]]:
+    if not project_ids:
+        return {}
+
+    result = await db.execute(
+        select(ProjectMember)
+        .where(ProjectMember.project_id.in_(project_ids))
+        .options(selectinload(ProjectMember.user))
+        .order_by(ProjectMember.project_id.asc(), ProjectMember.created_at.asc())
+    )
+    members = list(result.scalars().unique().all())
+
+    members_map: dict[int, list[AdminUserBrief]] = {project_id: [] for project_id in project_ids}
+    seen: dict[int, set[int]] = {project_id: set() for project_id in project_ids}
+
+    for member in members:
+        user_brief = serialize_user_brief(member.user)
+        if user_brief is None:
+            continue
+        if member.user_id in seen[member.project_id]:
+            continue
+        seen[member.project_id].add(member.user_id)
+        members_map[member.project_id].append(user_brief)
+
+    return members_map
+
+
+async def list_all_members(
+    db: AsyncSession,
+    *,
+    limit: int = 50,
+    offset: int = 0,
+    search: str | None = None,
+    membership_type: str = "project",
+    organization_id: int | None = None,
+    project_id: int | None = None,
+    base_path: str,
+) -> PaginatedAdminMembersResponse:
+    if membership_type == "organization":
+        return await _list_organization_members(
+            db,
+            limit=limit,
+            offset=offset,
+            search=search,
+            organization_id=organization_id,
+            base_path=base_path,
+        )
+
+    return await _list_project_members(
+        db,
+        limit=limit,
+        offset=offset,
+        search=search,
+        organization_id=organization_id,
+        project_id=project_id,
+        base_path=base_path,
+    )
+
+
+async def _list_project_members(
+    db: AsyncSession,
+    *,
+    limit: int,
+    offset: int,
+    search: str | None,
+    organization_id: int | None,
+    project_id: int | None,
+    base_path: str,
+) -> PaginatedAdminMembersResponse:
+    filters = []
+    if search:
+        pattern = f"%{search.strip()}%"
+        filters.append(
+            User.email.ilike(pattern)
+            | User.name.ilike(pattern)
+            | User.surname.ilike(pattern)
+            | Project.name.ilike(pattern)
+        )
+    if organization_id is not None:
+        filters.append(Project.organization_id == organization_id)
+    if project_id is not None:
+        filters.append(ProjectMember.project_id == project_id)
+
+    count_query = (
+        select(func.count())
+        .select_from(ProjectMember)
+        .join(ProjectMember.user)
+        .join(ProjectMember.project)
+    )
+    if filters:
+        count_query = count_query.where(*filters)
+    total = int((await db.execute(count_query)).scalar_one())
+
+    query = (
+        select(ProjectMember)
+        .join(ProjectMember.user)
+        .join(ProjectMember.project)
+        .join(Project.organization)
+        .options(
+            selectinload(ProjectMember.user),
+            selectinload(ProjectMember.project).selectinload(Project.organization),
+        )
+        .order_by(ProjectMember.created_at.desc(), ProjectMember.id.desc())
+    )
+    if filters:
+        query = query.where(*filters)
+
+    result = await db.execute(query.limit(limit).offset(offset))
+    project_members = list(result.scalars().unique().all())
+
+    query_parts = _member_query_suffix(
+        search=search,
+        membership_type="project",
+        organization_id=organization_id,
+        project_id=project_id,
+    )
+    next_url, previous_url = build_page_urls(
+        base_path=base_path,
+        limit=limit,
+        offset=offset,
+        total=total,
+        query_suffix=query_parts,
+    )
+
+    return PaginatedAdminMembersResponse(
+        count=total,
+        next=next_url,
+        previous=previous_url,
+        results=[
+            AdminMemberRead(
+                id=member.id,
+                membership_type="project",
+                role=member.role,
+                belonging=member.belonging,
+                organization_id=member.project.organization_id,
+                organization_name=member.project.organization.short_name
+                if member.project.organization
+                else "",
+                project_id=member.project_id,
+                project_name=member.project.name if member.project else "",
+                user=serialize_user_brief(member.user) or AdminUserBrief(
+                    id=member.user_id,
+                    email=member.user.email if member.user else f"user-{member.user_id}@unknown.local",
+                ),
+                created_at=member.created_at,
+            )
+            for member in project_members
+        ],
+    )
+
+
+async def _list_organization_members(
+    db: AsyncSession,
+    *,
+    limit: int,
+    offset: int,
+    search: str | None,
+    organization_id: int | None,
+    base_path: str,
+) -> PaginatedAdminMembersResponse:
+    filters = []
+    if search:
+        pattern = f"%{search.strip()}%"
+        filters.append(
+            User.email.ilike(pattern)
+            | User.name.ilike(pattern)
+            | User.surname.ilike(pattern)
+            | Organization.full_name.ilike(pattern)
+            | Organization.short_name.ilike(pattern)
+        )
+    if organization_id is not None:
+        filters.append(OrganizationMember.organization_id == organization_id)
+
+    count_query = (
+        select(func.count())
+        .select_from(OrganizationMember)
+        .join(OrganizationMember.user)
+        .join(OrganizationMember.organization)
+    )
+    if filters:
+        count_query = count_query.where(*filters)
+    total = int((await db.execute(count_query)).scalar_one())
+
+    query = (
+        select(OrganizationMember)
+        .join(OrganizationMember.user)
+        .join(OrganizationMember.organization)
+        .options(
+            selectinload(OrganizationMember.user),
+            selectinload(OrganizationMember.organization),
+        )
+        .order_by(OrganizationMember.created_at.desc(), OrganizationMember.id.desc())
+    )
+    if filters:
+        query = query.where(*filters)
+
+    result = await db.execute(query.limit(limit).offset(offset))
+    org_members = list(result.scalars().unique().all())
+
+    query_parts = _member_query_suffix(
+        search=search,
+        membership_type="organization",
+        organization_id=organization_id,
+        project_id=None,
+    )
+    next_url, previous_url = build_page_urls(
+        base_path=base_path,
+        limit=limit,
+        offset=offset,
+        total=total,
+        query_suffix=query_parts,
+    )
+
+    return PaginatedAdminMembersResponse(
+        count=total,
+        next=next_url,
+        previous=previous_url,
+        results=[
+            AdminMemberRead(
+                id=member.id,
+                membership_type="organization",
+                role=member.role,
+                organization_id=member.organization_id,
+                organization_name=member.organization.short_name if member.organization else "",
+                user=serialize_user_brief(member.user) or AdminUserBrief(
+                    id=member.user_id,
+                    email=member.user.email if member.user else f"user-{member.user_id}@unknown.local",
+                ),
+                created_at=member.created_at,
+            )
+            for member in org_members
+        ],
+    )
+
+
+def _member_query_suffix(
+    *,
+    search: str | None,
+    membership_type: str,
+    organization_id: int | None,
+    project_id: int | None,
+) -> str:
+    query_parts = [f"type={membership_type}"]
+    if search:
+        query_parts.append(f"search={search}")
+    if organization_id is not None:
+        query_parts.append(f"organization={organization_id}")
+    if project_id is not None:
+        query_parts.append(f"project={project_id}")
+    return "&".join(query_parts)
 
 
 async def list_all_organizations(
@@ -200,7 +460,7 @@ async def list_all_tasks(
         .options(
             selectinload(Task.creator),
             selectinload(Task.status),
-            selectinload(Task.project),
+            selectinload(Task.project).selectinload(Project.organization),
         )
         .order_by(Task.created_at.desc(), Task.id.desc())
     )
@@ -209,6 +469,9 @@ async def list_all_tasks(
 
     result = await db.execute(query.limit(limit).offset(offset))
     tasks = list(result.scalars().unique().all())
+
+    project_ids = list({task.project_id for task in tasks})
+    members_map = await _load_project_members_map(db, project_ids)
 
     query_parts: list[str] = []
     if search:
@@ -235,8 +498,17 @@ async def list_all_tasks(
                 slug=task.slug,
                 project_id=task.project_id,
                 project_name=task.project.name if task.project else "",
+                organization_id=task.project.organization_id if task.project else None,
+                organization_name=(
+                    task.project.organization.short_name
+                    if task.project and task.project.organization
+                    else ""
+                ),
                 creator_id=task.creator_id,
                 creator_email=task.creator.email if task.creator else "",
+                creator_name=user_display_name(task.creator),
+                creator=serialize_user_brief(task.creator),
+                members=members_map.get(task.project_id, []),
                 status_id=task.status_id,
                 status_name_en=task.status.name_en if task.status else "",
                 status_name_ru=task.status.name_ru if task.status else "",

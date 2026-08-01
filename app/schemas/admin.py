@@ -31,6 +31,32 @@ class AdminUserRoleUpdate(BaseModel):
     role: str = Field(min_length=1, max_length=50)
 
 
+class AdminUserBrief(BaseModel):
+    id: int
+    email: EmailStr
+    full_name: str = ""
+    name: str = ""
+    surname: str = ""
+    avatar: dict = Field(default_factory=dict)
+
+
+class AdminMemberRead(BaseModel):
+    id: int
+    membership_type: str
+    role: str
+    belonging: str = ""
+    organization_id: int
+    organization_name: str = ""
+    project_id: int | None = None
+    project_name: str | None = None
+    user: AdminUserBrief
+    created_at: datetime
+
+
+class PaginatedAdminMembersResponse(PaginatedResponse):
+    results: list[AdminMemberRead]
+
+
 class AdminOrganizationRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -76,8 +102,13 @@ class AdminTaskRead(BaseModel):
     slug: str
     project_id: int
     project_name: str = ""
+    organization_id: int | None = None
+    organization_name: str = ""
     creator_id: int
     creator_email: str = ""
+    creator_name: str = ""
+    creator: AdminUserBrief | None = None
+    members: list[AdminUserBrief] = Field(default_factory=list)
     status_id: int
     status_name_en: str = ""
     status_name_ru: str = ""

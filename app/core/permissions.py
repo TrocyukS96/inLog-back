@@ -13,6 +13,7 @@ class Permission(StrEnum):
     VIEW_ALL_TASKS = "view_all_tasks"
     VIEW_ALL_TASK_STATUSES = "view_all_task_statuses"
     VIEW_ALL_TASK_TAGS = "view_all_task_tags"
+    VIEW_ALL_MEMBERS = "view_all_members"
 
 
 ROLE_PERMISSIONS: dict[PlatformRole, frozenset[Permission]] = {
@@ -27,6 +28,7 @@ ROLE_PERMISSIONS: dict[PlatformRole, frozenset[Permission]] = {
             Permission.VIEW_ALL_TASKS,
             Permission.VIEW_ALL_TASK_STATUSES,
             Permission.VIEW_ALL_TASK_TAGS,
+            Permission.VIEW_ALL_MEMBERS,
         }
     ),
     PlatformRole.SUPER_ADMIN: frozenset(Permission),

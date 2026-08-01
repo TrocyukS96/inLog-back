@@ -9,6 +9,7 @@ from app.schemas.admin import (
     AdminAccessRead,
     AdminUserRead,
     AdminUserRoleUpdate,
+    PaginatedAdminMembersResponse,
     PaginatedAdminOrganizationsResponse,
     PaginatedAdminProjectsResponse,
     PaginatedAdminTasksResponse,
@@ -17,6 +18,7 @@ from app.schemas.admin import (
     PaginatedAdminUsersResponse,
 )
 from app.services.admin.catalog import (
+    list_all_members,
     list_all_organizations,
     list_all_projects,
     list_all_task_statuses,
@@ -80,6 +82,30 @@ async def admin_update_user_role(
         return await update_user_platform_role(db, current_user, user_id, data.role)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@router.get("/member/", response_model=PaginatedAdminMembersResponse)
+async def admin_list_members(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_permission(Permission.VIEW_ALL_MEMBERS)),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    search: str | None = Query(default=None),
+    type: str = Query(default="project", pattern="^(project|organization)$"),
+    organization: int | None = Query(default=None),
+    project: int | None = Query(default=None),
+) -> PaginatedAdminMembersResponse:
+    return await list_all_members(
+        db,
+        limit=limit,
+        offset=offset,
+        search=search,
+        membership_type=type,
+        organization_id=organization,
+        project_id=project,
+        base_path=_admin_base_path(request, "member"),
+    )
 
 
 @router.get("/organization/", response_model=PaginatedAdminOrganizationsResponse)

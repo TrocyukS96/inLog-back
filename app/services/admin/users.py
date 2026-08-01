@@ -127,8 +127,15 @@ def _can_manage_role(actor: User, new_role: str, target: User | None = None) -> 
             f"Invalid role. Allowed values: {', '.join(role.value for role in PlatformRole)}."
         ) from exc
 
-    if target is not None and target.id == actor.id and new_role != PlatformRole.SUPER_ADMIN:
-        raise ValueError("You cannot demote your own super admin account.")
+    if new_role == PlatformRole.SUPER_ADMIN:
+        raise ValueError("Super admin role can only be assigned via server configuration.")
+
+    if target is not None:
+        target_role = normalize_platform_role(target.role)
+        if target_role == PlatformRole.SUPER_ADMIN:
+            raise ValueError("Super admin role cannot be changed via API.")
+        if target.id == actor.id:
+            raise ValueError("You cannot change your own platform role.")
 
 
 async def update_user_platform_role(

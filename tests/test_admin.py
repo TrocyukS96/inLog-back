@@ -110,11 +110,96 @@ async def test_super_admin_can_update_user_role(client: AsyncClient) -> None:
 
 
 @pytest.mark.asyncio
+async def test_super_admin_cannot_assign_super_admin_via_api(client: AsyncClient) -> None:
+    _, super_login = await create_verified_user(client, PlatformRole.SUPER_ADMIN)
+    _, member_login = await create_verified_user(client, PlatformRole.MEMBER)
+
+    response = await client.patch(
+        f"/api/admin/user/{member_login['user']['id']}/role/",
+        headers={"Authorization": f"Bearer {super_login['access_token']}"},
+        json={"role": PlatformRole.SUPER_ADMIN},
+    )
+    assert response.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_super_admin_cannot_change_super_admin_role_via_api(client: AsyncClient) -> None:
+    _, super_login = await create_verified_user(client, PlatformRole.SUPER_ADMIN)
+    _, other_super_login = await create_verified_user(client, PlatformRole.SUPER_ADMIN)
+
+    response = await client.patch(
+        f"/api/admin/user/{other_super_login['user']['id']}/role/",
+        headers={"Authorization": f"Bearer {super_login['access_token']}"},
+        json={"role": PlatformRole.ADMIN},
+    )
+    assert response.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_admin_tasks_include_creator_and_members(client: AsyncClient) -> None:
+    _, super_login = await create_verified_user(client, PlatformRole.SUPER_ADMIN)
+    member_email, member_login = await create_verified_user(client, PlatformRole.MEMBER)
+    headers = {"Authorization": f"Bearer {super_login['access_token']}"}
+
+    org_response = await client.post(
+        "/api/organizations/organization/",
+        headers=headers,
+        json={"full_name": "Admin Org", "short_name": "AO"},
+    )
+    assert org_response.status_code == 201
+    org_id = org_response.json()["id"]
+
+    project_response = await client.post(
+        "/api/projects/project/",
+        headers=headers,
+        json={"name": "Admin Project", "organization": org_id},
+    )
+    assert project_response.status_code == 201
+    project_id = project_response.json()["id"]
+
+    member_headers = {"Authorization": f"Bearer {member_login['access_token']}"}
+    invite_response = await client.post(
+        f"/api/projects/{project_id}/user-invitation/",
+        headers=headers,
+        json={"user": member_login["user"]["id"], "role": "member"},
+    )
+    assert invite_response.status_code == 201
+    invitation_id = invite_response.json()["id"]
+
+    accept_response = await client.post(
+        f"/api/projects/{project_id}/user-invitation/response/",
+        headers=member_headers,
+        json={"action": "accept", "project_user_invitation": invitation_id},
+    )
+    assert accept_response.status_code == 204
+
+    task_response = await client.post(
+        f"/api/projects/{project_id}/tasks/task/",
+        headers=headers,
+        json={"name": "Admin task", "project": project_id},
+    )
+    assert task_response.status_code == 201
+
+    list_response = await client.get("/api/admin/task/", headers=headers)
+    assert list_response.status_code == 200
+    tasks = list_response.json()["results"]
+    assert tasks
+    task = next(item for item in tasks if item["name"] == "Admin task")
+    assert task["creator"]["email"] == super_login["user"]["email"]
+    assert task["creator_name"]
+    assert len(task["members"]) >= 2
+    member_emails = {member["email"] for member in task["members"]}
+    assert super_login["user"]["email"] in member_emails
+    assert member_email in member_emails
+
+
+@pytest.mark.asyncio
 async def test_admin_catalog_endpoints(client: AsyncClient) -> None:
     _, login_data = await create_verified_user(client, PlatformRole.SUPER_ADMIN)
     headers = {"Authorization": f"Bearer {login_data['access_token']}"}
 
     for path in (
+        "/api/admin/member/",
         "/api/admin/organization/",
         "/api/admin/project/",
         "/api/admin/task/",
